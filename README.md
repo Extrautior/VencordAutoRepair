@@ -7,7 +7,7 @@ VencordAutoRepair watches your installed Discord branches, waits for Discord's u
 - Detects installed Discord Stable, PTB, and Canary builds from `%LOCALAPPDATA%`
 - Detects common Linux Discord install paths too, including Arch-friendly locations like `/opt/discord` and `/usr/share/discord`
 - Tracks the newest `app-*` version seen for each branch
-- Starts Discord through `Update.exe` when needed so pending updates can finish
+- Waits for Discord updater activity to settle when an update is already in progress
 - Waits for updater activity to stop before patching
 - Verifies whether Vencord still appears patched
 - Uses the official Vencord CLI installer to install or repair the install
@@ -16,7 +16,7 @@ VencordAutoRepair watches your installed Discord branches, waits for Discord's u
 ## Files
 
 - `main.py`: main watcher/repair script
-- `startup_manager.py`: add or remove the script from Windows startup
+- `startup_manager.py`: add or remove the script from Windows startup or Linux desktop autostart
 - `settings.json`: runtime settings, created on first run
 - `state.json`: last seen Discord versions, created on first run
 - `VencordInstallerCli.exe`: downloaded automatically on first run unless you point `settings.json` at your own copy
@@ -94,6 +94,6 @@ Example:
 
 ## Notes
 
-- This targets Windows desktop Discord installs in `%LOCALAPPDATA%`
+- This targets Windows desktop installs and common Linux desktop Discord installs
 - It intentionally delegates the actual patching to the official Vencord installer instead of reimplementing Vencord's patch format
 - Vencord is a Discord client modification; use it at your own risk

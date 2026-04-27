@@ -7,6 +7,7 @@ build/
 dist/
 *.zip
 *.tar.gz
+linux-release/
 
 settings.json
 state.json
