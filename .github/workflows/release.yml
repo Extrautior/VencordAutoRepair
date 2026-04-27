@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build executables
+        run: python setup.py build
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $buildDir = Get-ChildItem build -Directory | Select-Object -First 1
+          $zipName = "VencordAutoRepair-${{ github.ref_name }}-windows.zip"
+          Compress-Archive -Path "$($buildDir.FullName)\*" -DestinationPath $zipName -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vencord-auto-repair-windows
+          path: VencordAutoRepair-*-windows.zip
+
+      - name: Publish GitHub release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VencordAutoRepair-*-windows.zip
