@@ -1,4 +1,4 @@
 cx_Freeze==7.2.10
 psutil==7.0.0
 requests==2.32.3
-winshell==0.6
+winshell==0.6; sys_platform == "win32"

@@ -2,7 +2,8 @@ import os
 import sys
 from pathlib import Path
 
-import winshell
+if os.name == "nt":
+    import winshell
 
 
 SHORTCUT_NAME = "VencordAutoRepair.lnk"
@@ -15,6 +16,8 @@ def base_dir() -> Path:
 
 
 def shortcut_path() -> Path:
+    if os.name != "nt":
+        return Path.home() / ".config" / "autostart" / "vencord-auto-repair.desktop"
     startup_dir = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
     return startup_dir / SHORTCUT_NAME
 
@@ -22,20 +25,40 @@ def shortcut_path() -> Path:
 def add_to_startup() -> None:
     link_path = shortcut_path()
 
-    if getattr(sys, "frozen", False):
-        target = base_dir() / "main.exe"
-        arguments = ""
-        working_directory = str(base_dir())
-    else:
-        target = Path(sys.executable).resolve()
-        arguments = str(base_dir() / "main.py")
-        working_directory = str(base_dir())
+    if os.name == "nt":
+        if getattr(sys, "frozen", False):
+            target = base_dir() / "main.exe"
+            arguments = ""
+            working_directory = str(base_dir())
+        else:
+            target = Path(sys.executable).resolve()
+            arguments = str(base_dir() / "main.py")
+            working_directory = str(base_dir())
 
-    with winshell.shortcut(str(link_path)) as link:
-        link.path = str(target)
-        link.arguments = arguments
-        link.working_directory = working_directory
-        link.description = "Automatically repairs Vencord after Discord updates"
+        with winshell.shortcut(str(link_path)) as link:
+            link.path = str(target)
+            link.arguments = arguments
+            link.working_directory = working_directory
+            link.description = "Automatically repairs Vencord after Discord updates"
+    else:
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        if getattr(sys, "frozen", False):
+            exec_line = str(base_dir() / "main")
+        else:
+            exec_line = f"{Path(sys.executable).resolve()} {base_dir() / 'main.py'}"
+
+        desktop_file = "\n".join([
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=VencordAutoRepair",
+            "Comment=Automatically installs or repairs Vencord after Discord updates",
+            f"Exec={exec_line}",
+            f"Path={base_dir()}",
+            "Terminal=false",
+            "X-GNOME-Autostart-enabled=true",
+            "",
+        ])
+        link_path.write_text(desktop_file, encoding="utf-8")
 
     print(f"Added startup shortcut at {link_path}")
 

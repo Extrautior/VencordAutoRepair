@@ -5,6 +5,7 @@ VencordAutoRepair watches your installed Discord branches, waits for Discord's u
 ## What it does
 
 - Detects installed Discord Stable, PTB, and Canary builds from `%LOCALAPPDATA%`
+- Detects common Linux Discord install paths too, including Arch-friendly locations like `/opt/discord` and `/usr/share/discord`
 - Tracks the newest `app-*` version seen for each branch
 - Starts Discord through `Update.exe` when needed so pending updates can finish
 - Waits for updater activity to stop before patching
@@ -36,6 +37,21 @@ The current behavior is intentionally conservative:
 4. Optional: run `python startup_manager.py` and choose `Add to startup`
 5. Optional validation: run `python main.py --dry-run`
 
+## Linux use
+
+This project also supports Linux desktop Discord installs and is aimed to work for common Arch-style locations.
+
+1. Install Python 3.11+ and `pip`
+2. Run `python3 -m pip install -r requirements.txt`
+3. Run `python3 main.py --dry-run`
+4. Run `python3 main.py` for the real install/repair flow
+5. Optional: run `python3 startup_manager.py` and choose `Add to startup`
+
+Shell wrappers are included too:
+
+- `./main.sh`
+- `./startup_manager.sh`
+
 ## Build an EXE
 
 1. Run `python -m pip install -r requirements.txt`
@@ -53,6 +69,8 @@ If you are using a published GitHub release:
 2. Extract it anywhere
 3. Run `main.exe`
 4. Run `startup_manager.exe` if you want automatic startup
+
+Linux users can download the Linux tarball release, extract it, run `python3 -m pip install -r requirements.txt`, then use `python3 main.py` or `./main.sh`.
 
 ## Settings
 

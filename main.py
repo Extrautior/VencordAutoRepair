@@ -1,6 +1,10 @@
+#!/usr/bin/env python3
+
 import json
 import logging
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -15,11 +19,12 @@ import requests
 logging.basicConfig(level=logging.INFO, format="(%(asctime)s) %(message)s")
 logger = logging.getLogger("vencord-auto-repair")
 
-SCRIPT_VERSION = "0.1.0"
-INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
+SCRIPT_VERSION = "0.2.0"
+WINDOWS_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
+LINUX_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
 SETTINGS_FILENAME = "settings.json"
 STATE_FILENAME = "state.json"
-INSTALLER_FILENAME = "VencordInstallerCli.exe"
+INSTALLER_FILENAME = "VencordInstallerCli.exe" if os.name == "nt" else "VencordInstallerCli-linux"
 
 BRANCH_TO_FOLDER = {
     "stable": "Discord",
@@ -33,6 +38,32 @@ BRANCH_TO_PROCESS = {
     "canary": "DiscordCanary.exe",
 }
 
+LINUX_BRANCH_TO_COMMANDS = {
+    "stable": ["discord", "Discord"],
+    "ptb": ["discord-ptb", "discordptb", "DiscordPTB"],
+    "canary": ["discord-canary", "discordcanary", "DiscordCanary"],
+}
+
+LINUX_BRANCH_TO_DIRS = {
+    "stable": [
+        "Discord",
+        "discord",
+        "com.discordapp.Discord",
+    ],
+    "ptb": [
+        "DiscordPTB",
+        "discordptb",
+        "discord-ptb",
+        "com.discordapp.DiscordPTB",
+    ],
+    "canary": [
+        "DiscordCanary",
+        "discordcanary",
+        "discord-canary",
+        "com.discordapp.DiscordCanary",
+    ],
+}
+
 UPDATER_DONE_MESSAGES = (
     "Updater main thread exiting",
     "Already up to date. Nothing to do",
@@ -43,10 +74,13 @@ UPDATER_DONE_MESSAGES = (
 class DiscordInstall:
     branch: str
     root_path: Path
+    executable_hint: Optional[Path] = None
 
     @property
     def process_name(self) -> str:
-        return BRANCH_TO_PROCESS[self.branch]
+        if os.name == "nt":
+            return BRANCH_TO_PROCESS[self.branch]
+        return LINUX_BRANCH_TO_COMMANDS[self.branch][0]
 
     @property
     def updater_log_path(self) -> Path:
@@ -58,6 +92,9 @@ class DiscordInstall:
         return self.root_path / "Update.exe"
 
     def latest_app_dir(self) -> Optional[Path]:
+        if os.name != "nt":
+            return None
+
         app_dirs = []
         for child in self.root_path.iterdir():
             if child.is_dir() and child.name.startswith("app-"):
@@ -70,26 +107,55 @@ class DiscordInstall:
         return app_dirs[-1]
 
     def latest_version(self) -> Optional[str]:
+        if os.name != "nt":
+            return self.install_signature()
+
         app_dir = self.latest_app_dir()
         return None if app_dir is None else app_dir.name
 
     def resources_dir(self) -> Optional[Path]:
+        if os.name != "nt":
+            resources = self.root_path / "resources"
+            if resources.exists():
+                return resources
+            if (self.root_path / "app.asar").exists():
+                return self.root_path
+            return None
+
         app_dir = self.latest_app_dir()
         if app_dir is None:
             return None
         return app_dir / "resources"
 
-    def is_vencord_patched(self) -> bool:
+    def app_asar_path(self) -> Optional[Path]:
         resources = self.resources_dir()
         if resources is None:
-            return False
-        return (resources / "_app.asar").exists() and (resources / "app.asar").exists()
+            return None
+        path = resources / "app.asar"
+        return path if path.exists() else None
+
+    def backup_asar_path(self) -> Optional[Path]:
+        resources = self.resources_dir()
+        if resources is None:
+            return None
+        for candidate in ("_app.asar", "_app.asar.unpacked"):
+            path = resources / candidate
+            if path.exists():
+                return path
+        return None
+
+    def is_vencord_patched(self) -> bool:
+        return self.app_asar_path() is not None and self.backup_asar_path() is not None
 
     def has_plain_app_asar(self) -> bool:
-        resources = self.resources_dir()
-        if resources is None:
-            return False
-        return (resources / "app.asar").exists() and not (resources / "_app.asar").exists()
+        return self.app_asar_path() is not None and self.backup_asar_path() is None
+
+    def install_signature(self) -> Optional[str]:
+        app_asar = self.app_asar_path()
+        if app_asar is None:
+            return None
+        stat = app_asar.stat()
+        return f"{app_asar}:{stat.st_size}:{int(stat.st_mtime)}"
 
 
 def base_dir() -> Path:
@@ -144,6 +210,12 @@ def default_settings() -> dict:
 
 
 def discover_installs() -> list[DiscordInstall]:
+    if os.name == "nt":
+        return discover_windows_installs()
+    return discover_linux_installs()
+
+
+def discover_windows_installs() -> list[DiscordInstall]:
     localappdata = Path(os.environ["LOCALAPPDATA"])
     installs = []
 
@@ -153,6 +225,74 @@ def discover_installs() -> list[DiscordInstall]:
             installs.append(DiscordInstall(branch=branch, root_path=root))
 
     return installs
+
+
+def discover_linux_installs() -> list[DiscordInstall]:
+    home = Path.home()
+    search_roots = [
+        Path("/usr/share"),
+        Path("/usr/lib64"),
+        Path("/opt"),
+        home / ".local/share",
+        home / ".dvm",
+        Path("/var/lib/flatpak/app"),
+        home / ".local/share/flatpak/app",
+    ]
+
+    installs = []
+    seen = set()
+    for branch, dir_names in LINUX_BRANCH_TO_DIRS.items():
+        for root in search_roots:
+            for dir_name in dir_names:
+                candidate = root / dir_name
+                resolved = resolve_linux_discord_root(candidate)
+                if resolved is None:
+                    continue
+
+                key = str(resolved)
+                if key in seen:
+                    continue
+                seen.add(key)
+                installs.append(
+                    DiscordInstall(
+                        branch=branch,
+                        root_path=resolved,
+                        executable_hint=find_linux_executable(branch, resolved),
+                    )
+                )
+    return installs
+
+
+def resolve_linux_discord_root(candidate: Path) -> Optional[Path]:
+    if not candidate.exists():
+        return None
+
+    flatpak_prefix = "com.discordapp."
+    if candidate.name.startswith(flatpak_prefix) and "current" not in candidate.parts:
+        suffix = candidate.name[len(flatpak_prefix):]
+        mapped = {
+            "Discord": "discord",
+            "DiscordPTB": "discord-ptb",
+            "DiscordCanary": "discord-canary",
+        }.get(suffix, suffix.lower())
+        candidate = candidate / "current" / "active" / "files" / mapped
+
+    resources = candidate / "resources"
+    if resources.exists() or (candidate / "app.asar").exists():
+        return candidate
+    return None
+
+
+def find_linux_executable(branch: str, root_path: Path) -> Optional[Path]:
+    candidates = [
+        root_path / "Discord",
+        root_path / "discord",
+        root_path.parent / "bin" / LINUX_BRANCH_TO_COMMANDS[branch][0],
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def get_processes_by_name(process_name: str) -> list[psutil.Process]:
@@ -166,11 +306,33 @@ def get_processes_by_name(process_name: str) -> list[psutil.Process]:
     return matches
 
 
+def get_processes_for_install(install: DiscordInstall) -> list[psutil.Process]:
+    if os.name == "nt":
+        return get_processes_by_name(install.process_name)
+
+    names = set(LINUX_BRANCH_TO_COMMANDS[install.branch])
+    matches = []
+    for proc in psutil.process_iter(["name", "exe", "cmdline"]):
+        try:
+            name = proc.info.get("name") or ""
+            exe = Path(proc.info.get("exe") or "").name
+            cmdline = " ".join(proc.info.get("cmdline") or [])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+        if name in names or exe in names or any(token in cmdline for token in names):
+            matches.append(proc)
+    return matches
+
+
 def is_running(install: DiscordInstall) -> bool:
-    return bool(get_processes_by_name(install.process_name))
+    return bool(get_processes_for_install(install))
 
 
 def is_update_exe_running(install: DiscordInstall) -> bool:
+    if os.name != "nt":
+        return False
+
     update_exe = str(install.update_exe).lower()
     for proc in psutil.process_iter(["name", "exe", "cmdline"]):
         try:
@@ -185,23 +347,41 @@ def is_update_exe_running(install: DiscordInstall) -> bool:
 
 
 def clear_updater_log(log_path: Path) -> None:
+    if os.name != "nt":
+        return
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
 
 
 def start_discord(install: DiscordInstall) -> None:
-    if not install.update_exe.exists():
-        raise FileNotFoundError(f"Update.exe not found at {install.update_exe}")
+    if os.name == "nt":
+        if not install.update_exe.exists():
+            raise FileNotFoundError(f"Update.exe not found at {install.update_exe}")
 
-    command = [str(install.update_exe), "--processStart", install.process_name]
-    logger.info("Starting %s via Update.exe", install.branch)
-    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        command = [str(install.update_exe), "--processStart", install.process_name]
+        logger.info("Starting %s via Update.exe", install.branch)
+        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+
+    executable = install.executable_hint
+    if executable is None or not executable.exists():
+        for candidate in LINUX_BRANCH_TO_COMMANDS[install.branch]:
+            resolved = shutil.which(candidate)
+            if resolved:
+                executable = Path(resolved)
+                break
+
+    if executable is None:
+        raise FileNotFoundError(f"Could not find a Discord executable for {install.branch}")
+
+    logger.info("Starting %s via %s", install.branch, executable)
+    subprocess.Popen([str(executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def kill_discord(install: DiscordInstall) -> None:
-    for proc in get_processes_by_name(install.process_name):
+    for proc in get_processes_for_install(install):
         try:
-            logger.info("Killing %s (PID %s)", install.process_name, proc.pid)
+            logger.info("Killing %s (PID %s)", proc.name(), proc.pid)
             proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -212,6 +392,8 @@ def kill_discord(install: DiscordInstall) -> None:
 
 
 def updater_log_signals_done(log_path: Path) -> bool:
+    if os.name != "nt":
+        return True
     try:
         content = log_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -254,9 +436,12 @@ def wait_for_update_completion(install: DiscordInstall, timeout_seconds: int = 1
 
 def download_installer(target: Path) -> None:
     logger.info("Downloading official Vencord installer CLI")
-    response = requests.get(INSTALLER_URL, timeout=60)
+    installer_url = WINDOWS_INSTALLER_URL if os.name == "nt" else LINUX_INSTALLER_URL
+    response = requests.get(installer_url, timeout=60)
     response.raise_for_status()
     target.write_bytes(response.content)
+    if os.name != "nt":
+        target.chmod(0o755)
 
 
 def ensure_installer(settings: dict) -> Path:
