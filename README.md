@@ -11,6 +11,7 @@ VencordAutoRepair watches your installed Discord branches, waits for Discord's u
 - Waits for updater activity to stop before patching
 - Verifies whether Vencord still appears patched
 - Uses the official Vencord CLI installer to install or repair the install
+- Can also repair the NoiseToggle Discord/Vencord bridge after Vencord is installed or repaired
 - Can restart Discord after an install or repair
 
 ## Files
@@ -28,6 +29,7 @@ The current behavior is intentionally conservative:
 - If Discord is running and an install or repair is needed, the tool closes it, applies the action, and can restart it afterward
 - If Discord is unpatched and looks like a plain install, the tool installs Vencord automatically
 - If Discord was updated and the patch is gone, the tool repairs Vencord automatically
+- If [NoiseToggle](https://github.com/Extrautior/NoiseToggle) is installed, the tool keeps its Vencord bridge patched too
 
 ## Install for Python use
 
@@ -84,6 +86,8 @@ Example:
   "download_installer_if_missing": true,
   "restart_discord_after_repair": true,
   "restart_discord_after_install": true,
+  "repair_noise_toggle_bridge": true,
+  "restart_discord_after_noise_toggle_bridge": true,
   "watched_branches": [
     "stable",
     "ptb",
@@ -96,4 +100,5 @@ Example:
 
 - This targets Windows desktop installs and common Linux desktop Discord installs
 - It intentionally delegates the actual patching to the official Vencord installer instead of reimplementing Vencord's patch format
+- NoiseToggle bridge repair is Windows-only and activates only when `%APPDATA%\NoiseToggle\settings.json` exists
 - Vencord is a Discord client modification; use it at your own risk

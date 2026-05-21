@@ -19,12 +19,193 @@ import requests
 logging.basicConfig(level=logging.INFO, format="(%(asctime)s) %(message)s")
 logger = logging.getLogger("vencord-auto-repair")
 
-SCRIPT_VERSION = "0.2.0"
+SCRIPT_VERSION = "0.3.0"
 WINDOWS_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
 LINUX_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
 SETTINGS_FILENAME = "settings.json"
 STATE_FILENAME = "state.json"
 INSTALLER_FILENAME = "VencordInstallerCli.exe" if os.name == "nt" else "VencordInstallerCli-linux"
+NOISETOGGLE_BRIDGE_BEGIN = "/* NoiseToggleBridge BEGIN */"
+NOISETOGGLE_BRIDGE_END = "/* NoiseToggleBridge END */"
+
+NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
+/* NoiseToggleBridge BEGIN */
+(() => {
+    if (global.__NoiseToggleBridgeStarted) return;
+    global.__NoiseToggleBridgeStarted = true;
+
+    const fs = require("fs");
+    const path = require("path");
+    const http = require("http");
+    const electron = require("electron");
+
+    const settingsPath = path.join(process.env.APPDATA, "NoiseToggle", "settings.json");
+    const readSettings = () => JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    const getDiscordWindow = () => {
+        const windows = electron.BrowserWindow.getAllWindows();
+        return windows.find(w => {
+            try {
+                const url = w.webContents.getURL();
+                return !w.isDestroyed() && /discord(app)?\.com|discord\.com/.test(url);
+            } catch {
+                return false;
+            }
+        }) || windows.find(w => !w.isDestroyed());
+    };
+
+    const rendererSource = enabled => `
+        (() => {
+            const requested = ${enabled};
+            const W = globalThis.Vencord?.Webpack;
+            const BD = globalThis.BdApi?.Webpack;
+
+            const unwrap = module => {
+                const out = [];
+                const add = value => {
+                    if (value && typeof value === "object" && !out.includes(value)) out.push(value);
+                };
+                add(module);
+                add(module?.default);
+                add(module?.Z);
+                add(module?.ZP);
+                return out;
+            };
+
+            const hasAny = (module, props) => unwrap(module).some(value => props.some(prop => typeof value?.[prop] === "function"));
+            const findByAnyProps = props => {
+                const found = [];
+                const add = module => unwrap(module).forEach(value => {
+                    if (value && !found.includes(value)) found.push(value);
+                });
+
+                for (const prop of props) {
+                    try { if (W?.findByProps) add(W.findByProps(prop)); } catch {}
+                    try { if (BD?.getByKeys) add(BD.getByKeys(prop)); } catch {}
+                }
+
+                try { if (W?.find) add(W.find(module => hasAny(module, props))); } catch {}
+                try { if (BD?.getModule) add(BD.getModule(module => hasAny(module, props))); } catch {}
+
+                return found.find(value => props.some(prop => typeof value?.[prop] === "function")) || null;
+            };
+
+            const setterNames = [
+                "setNoiseCancellation",
+                "setNoiseCancellationEnabled",
+                "setNoiseSuppression",
+                "setNoiseSuppressionEnabled",
+                "setInputNoiseCancellation",
+                "setKrispEnabled",
+                "setKrisp",
+                "toggleNoiseCancellation",
+                "toggleNoiseSuppression"
+            ];
+            const getterNames = [
+                "getNoiseCancellation",
+                "isNoiseCancellationEnabled",
+                "getNoiseCancellationEnabled",
+                "getNoiseSuppression",
+                "isNoiseSuppressionEnabled",
+                "getNoiseSuppressionEnabled",
+                "getInputNoiseCancellation",
+                "getKrispEnabled",
+                "isKrispEnabled"
+            ];
+
+            const voice = findByAnyProps([...setterNames, ...getterNames]);
+            if (!voice) throw new Error("Discord voice/noise suppression module was not found");
+
+            const getState = () => {
+                for (const name of getterNames) {
+                    if (typeof voice[name] === "function") return !!voice[name]();
+                }
+
+                return requested === null ? false : !!requested;
+            };
+
+            if (requested !== null) {
+                let called = false;
+                for (const name of setterNames) {
+                    if (typeof voice[name] === "function") {
+                        voice[name](!!requested);
+                        called = true;
+                        break;
+                    }
+                }
+
+                if (!called) throw new Error("Discord voice module has no supported Krisp setter");
+            }
+
+            return getState();
+        })();
+    `;
+
+    const evalInDiscord = async enabled => {
+        const win = getDiscordWindow();
+        if (!win) throw new Error("Discord window was not found");
+        return await win.webContents.executeJavaScript(rendererSource(enabled), true);
+    };
+
+    const send = (res, code, payload) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(payload));
+    };
+
+    const start = () => {
+        let settings;
+        try {
+            settings = readSettings();
+        } catch (err) {
+            console.error("[NoiseToggleBridge] Missing settings:", err);
+            return;
+        }
+
+        const port = settings.BridgePort || settings.bridgePort || 28473;
+        const token = settings.BridgeToken || settings.bridgeToken;
+        const server = http.createServer((req, res) => {
+            if (req.headers.authorization !== `Bearer ${token}`) {
+                send(res, 401, { error: "Unauthorized" });
+                return;
+            }
+
+            if (req.method === "GET" && req.url === "/state") {
+                evalInDiscord(null)
+                    .then(state => send(res, 200, { krispEnabled: !!state, KrispEnabled: !!state }))
+                    .catch(err => send(res, 500, { error: String(err?.message || err) }));
+                return;
+            }
+
+            if (req.method === "POST" && req.url === "/krisp") {
+                let body = "";
+                req.on("data", chunk => body += chunk);
+                req.on("end", () => {
+                    let enabled = false;
+                    try {
+                        enabled = !!JSON.parse(body || "{}").enabled;
+                    } catch {}
+
+                    evalInDiscord(enabled)
+                        .then(state => send(res, 200, { ok: true, krispEnabled: !!state, KrispEnabled: !!state }))
+                        .catch(err => send(res, 500, { error: String(err?.message || err) }));
+                });
+                return;
+            }
+
+            send(res, 404, { error: "Not found" });
+        });
+
+        server.on("error", err => console.error("[NoiseToggleBridge] Server error:", err));
+        server.listen(port, "127.0.0.1", () => console.log(`[NoiseToggleBridge] Listening on 127.0.0.1:${port}`));
+    };
+
+    try {
+        electron.app?.whenReady ? electron.app.whenReady().then(start) : start();
+    } catch (err) {
+        console.error("[NoiseToggleBridge] Startup failed:", err);
+    }
+})();
+/* NoiseToggleBridge END */
+'''
 
 BRANCH_TO_FOLDER = {
     "stable": "Discord",
@@ -199,12 +380,86 @@ def save_json(path: Path, data: dict) -> None:
         json.dump(data, handle, indent=2)
 
 
+def noise_toggle_settings_path() -> Path:
+    if os.name != "nt":
+        return Path.home() / ".config" / "NoiseToggle" / "settings.json"
+    return Path(os.environ["APPDATA"]) / "NoiseToggle" / "settings.json"
+
+
+def vencord_patcher_path() -> Optional[Path]:
+    if os.name != "nt":
+        return None
+    return Path(os.environ["APPDATA"]) / "Vencord" / "dist" / "patcher.js"
+
+
+def noise_toggle_bridge_available() -> bool:
+    return noise_toggle_settings_path().exists()
+
+
+def is_noise_toggle_bridge_installed() -> bool:
+    patcher = vencord_patcher_path()
+    if patcher is None or not patcher.exists():
+        return False
+
+    try:
+        content = patcher.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    return NOISETOGGLE_BRIDGE_BEGIN in content and NOISETOGGLE_BRIDGE_END in content
+
+
+def install_noise_toggle_bridge(dry_run: bool = False) -> bool:
+    if os.name != "nt":
+        logger.info("NoiseToggle bridge auto-repair is Windows-only; skipping")
+        return False
+
+    settings = noise_toggle_settings_path()
+    if not settings.exists():
+        logger.info("NoiseToggle settings not found at %s; skipping NoiseToggle bridge repair", settings)
+        return False
+
+    patcher = vencord_patcher_path()
+    if patcher is None or not patcher.exists():
+        logger.info("Vencord patcher not found; skipping NoiseToggle bridge repair")
+        return False
+
+    content = patcher.read_text(encoding="utf-8", errors="replace")
+    if NOISETOGGLE_BRIDGE_BEGIN in content:
+        begin = content.index(NOISETOGGLE_BRIDGE_BEGIN)
+        end = content.find(NOISETOGGLE_BRIDGE_END, begin)
+        if end >= 0:
+            end += len(NOISETOGGLE_BRIDGE_END)
+            updated = content[:begin].rstrip() + "\n\n" + NOISETOGGLE_VENCORD_PATCH_SOURCE.strip() + "\n" + content[end:].lstrip()
+        else:
+            updated = content + "\n\n" + NOISETOGGLE_VENCORD_PATCH_SOURCE.strip() + "\n"
+    else:
+        backup = patcher.with_suffix(patcher.suffix + ".noisetoggle.bak")
+        if not backup.exists() and not dry_run:
+            shutil.copy2(patcher, backup)
+        updated = content.rstrip() + "\n\n" + NOISETOGGLE_VENCORD_PATCH_SOURCE.strip() + "\n"
+
+    if updated == content:
+        logger.info("NoiseToggle Vencord bridge already installed")
+        return False
+
+    if dry_run:
+        logger.info("Dry run: would install NoiseToggle Vencord bridge into %s", patcher)
+        return False
+
+    patcher.write_text(updated, encoding="utf-8")
+    logger.info("Installed NoiseToggle Vencord bridge into %s", patcher)
+    return True
+
+
 def default_settings() -> dict:
     return {
         "installer_path": str(installer_path()),
         "download_installer_if_missing": True,
         "restart_discord_after_repair": True,
         "restart_discord_after_install": True,
+        "repair_noise_toggle_bridge": True,
+        "restart_discord_after_noise_toggle_bridge": True,
         "watched_branches": ["stable", "ptb", "canary"],
     }
 
@@ -539,6 +794,18 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
     logger.info("Planned action: %s", desired_action or "none")
 
     if desired_action is None:
+        if settings.get("repair_noise_toggle_bridge", True) and noise_toggle_bridge_available() and not is_noise_toggle_bridge_installed():
+            logger.info("Vencord is healthy, but NoiseToggle bridge is missing")
+            if dry_run:
+                install_noise_toggle_bridge(dry_run=True)
+                return False
+
+            bridge_changed = install_noise_toggle_bridge()
+            if bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True) and is_running(install):
+                kill_discord(install)
+                start_discord(install)
+            return bridge_changed
+
         logger.info("No action needed for %s", install.branch)
         return False
 
@@ -557,6 +824,10 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
     if not install.is_vencord_patched():
         raise RuntimeError(f"{desired_action.title()} finished but Vencord does not appear patched for {install.branch}")
 
+    bridge_changed = False
+    if settings.get("repair_noise_toggle_bridge", True):
+        bridge_changed = install_noise_toggle_bridge()
+
     state["last_seen_versions"][install.branch] = current_version
     state["last_action"][install.branch] = desired_action
 
@@ -564,6 +835,8 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
         desired_action == "repair" and settings.get("restart_discord_after_repair", True)
     ) or (
         desired_action == "install" and settings.get("restart_discord_after_install", True)
+    ) or (
+        bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True)
     )
 
     if should_restart:
