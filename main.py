@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import hashlib
 import logging
 import os
 import platform
@@ -19,7 +20,7 @@ import requests
 logging.basicConfig(level=logging.INFO, format="(%(asctime)s) %(message)s")
 logger = logging.getLogger("vencord-auto-repair")
 
-SCRIPT_VERSION = "0.3.1"
+SCRIPT_VERSION = "0.4.0"
 WINDOWS_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
 LINUX_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
 SETTINGS_FILENAME = "settings.json"
@@ -28,6 +29,14 @@ INSTALLER_FILENAME = "VencordInstallerCli.exe" if os.name == "nt" else "VencordI
 NOISETOGGLE_BRIDGE_BEGIN = "/* NoiseToggleBridge BEGIN */"
 NOISETOGGLE_BRIDGE_END = "/* NoiseToggleBridge END */"
 NOISETOGGLE_BRIDGE_VERSION = "/* NoiseToggleBridge VERSION 2 */"
+STREAMBOOST_DIST_FILES = (
+    "patcher.js",
+    "patcher.js.LEGAL.txt",
+    "preload.js",
+    "renderer.js",
+    "renderer.js.LEGAL.txt",
+    "renderer.css",
+)
 
 NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
 /* NoiseToggleBridge BEGIN */
@@ -405,6 +414,106 @@ def vencord_patcher_path() -> Optional[Path]:
     return Path(os.environ["APPDATA"]) / "Vencord" / "dist" / "patcher.js"
 
 
+def vencord_dist_path() -> Optional[Path]:
+    if os.name != "nt":
+        return None
+    return Path(os.environ["APPDATA"]) / "Vencord" / "dist"
+
+
+def streamboost_assets_path() -> Path:
+    return base_dir() / "assets" / "streamboost"
+
+
+def streamboost_target_path() -> Optional[Path]:
+    if os.name != "nt":
+        return None
+    return Path(os.environ["APPDATA"]) / "Vencord" / "streamboost"
+
+
+def streamboost_asset_pairs() -> list[tuple[Path, Path]]:
+    dist = vencord_dist_path()
+    target = streamboost_target_path()
+    if dist is None or target is None:
+        return []
+
+    assets = streamboost_assets_path()
+    pairs = [
+        (assets / "streamboost_hook.node", target / "streamboost_hook.node"),
+    ]
+    pairs.extend((assets / "dist" / name, dist / name) for name in STREAMBOOST_DIST_FILES)
+    return pairs
+
+
+def streamboost_assets_available() -> bool:
+    pairs = streamboost_asset_pairs()
+    return bool(pairs) and all(source.is_file() for source, _ in pairs)
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def streamboost_file_matches(source: Path, target: Path) -> bool:
+    if not source.is_file() or not target.is_file():
+        return False
+    if source.name == "patcher.js":
+        expected = remove_noise_toggle_bridge_blocks(
+            source.read_text(encoding="utf-8", errors="replace")
+        ).rstrip()
+        installed = remove_noise_toggle_bridge_blocks(
+            target.read_text(encoding="utf-8", errors="replace")
+        ).rstrip()
+        return installed == expected
+    return source.stat().st_size == target.stat().st_size and file_digest(source) == file_digest(target)
+
+
+def is_streamboost_direct_installed() -> bool:
+    return streamboost_assets_available() and all(
+        streamboost_file_matches(source, target)
+        for source, target in streamboost_asset_pairs()
+    )
+
+
+def install_streamboost_direct(dry_run: bool = False) -> bool:
+    if os.name != "nt":
+        logger.info("StreamBoost direct hook is Windows-only; skipping")
+        return False
+    if not streamboost_assets_available():
+        logger.warning("StreamBoost assets are incomplete at %s; skipping", streamboost_assets_path())
+        return False
+    if is_streamboost_direct_installed():
+        logger.info("StreamBoost direct hook already installed")
+        return False
+    if dry_run:
+        logger.info("Dry run: would install StreamBoost direct hook and Vencord bundle")
+        return False
+
+    target_root = streamboost_target_path()
+    if target_root is None:
+        return False
+    backup_root = target_root / "backup" / "dist"
+    dist_root = vencord_dist_path()
+
+    for source, target in streamboost_asset_pairs():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and dist_root is not None and target.parent == dist_root:
+            backup_root.mkdir(parents=True, exist_ok=True)
+            backup = backup_root / target.name
+            if not backup.exists():
+                shutil.copy2(target, backup)
+
+        temporary = target.with_name(target.name + ".streamboost.tmp")
+        shutil.copy2(source, temporary)
+        os.replace(temporary, target)
+
+    logger.info("Installed StreamBoost direct hook and Vencord bundle")
+    return True
+
+
 def noise_toggle_bridge_available() -> bool:
     return noise_toggle_settings_path().exists()
 
@@ -485,6 +594,8 @@ def default_settings() -> dict:
         "restart_discord_after_install": True,
         "repair_noise_toggle_bridge": True,
         "restart_discord_after_noise_toggle_bridge": True,
+        "repair_streamboost_direct": True,
+        "restart_discord_after_streamboost_direct": True,
         "watched_branches": ["stable", "ptb", "canary"],
     }
 
@@ -819,19 +930,49 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
     logger.info("Planned action: %s", desired_action or "none")
 
     if desired_action is None:
-        if settings.get("repair_noise_toggle_bridge", True) and noise_toggle_bridge_available() and not is_noise_toggle_bridge_installed():
-            logger.info("Vencord is healthy, but NoiseToggle bridge is missing")
+        streamboost_needed = (
+            settings.get("repair_streamboost_direct", True)
+            and streamboost_assets_available()
+            and not is_streamboost_direct_installed()
+        )
+        bridge_needed = (
+            settings.get("repair_noise_toggle_bridge", True)
+            and noise_toggle_bridge_available()
+            and not is_noise_toggle_bridge_installed()
+        )
+        if streamboost_needed or bridge_needed:
+            logger.info(
+                "Vencord is healthy, but optional integration repair is needed (StreamBoost: %s, NoiseToggle: %s)",
+                "yes" if streamboost_needed else "no",
+                "yes" if bridge_needed else "no",
+            )
             if dry_run:
-                install_noise_toggle_bridge(dry_run=True)
+                if streamboost_needed:
+                    install_streamboost_direct(dry_run=True)
+                if bridge_needed:
+                    install_noise_toggle_bridge(dry_run=True)
                 return False
 
-            bridge_changed = install_noise_toggle_bridge()
-            if bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True) and is_running(install):
+            was_running = is_running(install)
+            if streamboost_needed and was_running:
+                # The native module is locked while Discord has it loaded.
                 kill_discord(install)
+
+            streamboost_changed = install_streamboost_direct() if streamboost_needed else False
+            # StreamBoost replaces patcher.js, so repair NoiseToggle after it.
+            bridge_changed = install_noise_toggle_bridge() if settings.get("repair_noise_toggle_bridge", True) else False
+            should_restart_integration = (
+                streamboost_changed and settings.get("restart_discord_after_streamboost_direct", True)
+            ) or (
+                bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True)
+            )
+            if was_running and not streamboost_needed and should_restart_integration:
+                kill_discord(install)
+            if was_running and should_restart_integration:
                 start_discord(install)
             state["last_seen_versions"][install.branch] = current_version
-            state["last_action"][install.branch] = "bridge-repaired"
-            return bridge_changed
+            state["last_action"][install.branch] = "integrations-repaired"
+            return streamboost_changed or bridge_changed
 
         state["last_seen_versions"][install.branch] = current_version
         logger.info("No action needed for %s", install.branch)
@@ -852,6 +993,10 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
     if not install.is_vencord_patched():
         raise RuntimeError(f"{desired_action.title()} finished but Vencord does not appear patched for {install.branch}")
 
+    streamboost_changed = False
+    if settings.get("repair_streamboost_direct", True):
+        streamboost_changed = install_streamboost_direct()
+
     bridge_changed = False
     if settings.get("repair_noise_toggle_bridge", True):
         bridge_changed = install_noise_toggle_bridge()
@@ -865,6 +1010,8 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
         desired_action == "install" and settings.get("restart_discord_after_install", True)
     ) or (
         bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True)
+    ) or (
+        streamboost_changed and settings.get("restart_discord_after_streamboost_direct", True)
     )
 
     if should_restart:

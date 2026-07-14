@@ -1,0 +1,17 @@
+{
+  "streamBoostVersion": "0.4.0-final-send",
+  "builtFromVencordCommit": "94cc541",
+  "verifiedDiscordVersion": "1.0.9245",
+  "verifiedElectronVersion": "37.6.0",
+  "nativeAddon": {
+    "file": "streamboost_hook.node",
+    "napiVersion": 8,
+    "sha256": "3004cfe3d005ef339b3306eee68e2e4160525f7418b1e47f5850f6211d0047b1"
+  },
+  "behavior": {
+    "gainPercentMinimum": 100,
+    "gainPercentMaximum": 1000,
+    "directHook": "AudioSendStream::SendAudioData (stereo/multichannel AudioFrame only)",
+    "fallback": "NoiseToggle stream relay"
+  }
+}
