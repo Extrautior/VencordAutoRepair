@@ -4,7 +4,7 @@ Date: November 15, 2026. Local development branch: `dev/windows-modernization`.
 This report records local validation before the stable integration and v0.4.0
 publication were performed. The experimental alpha branches were outside this
 validation and remain unchanged. Current merge, tag, release, and CI status is
-reported by the parent release process.
+recorded on the GitHub release page and its linked Actions runs.
 
 ## Build and environment
 
@@ -90,9 +90,8 @@ the confirmed design risks addressed by this update.
 - Live Discord update/restart behavior on Stable, PTB and Canary, live
   NoiseToggle/Krisp integration, and protected installation permissions.
 - Linux execution and desktop autostart on a Linux host. A Linux CI test job is
-  included in the repository. Release checks will be recorded separately by the
-  parent release process, which appends verified GitHub Actions links and
-  results. This local report does not claim a CI pass.
+  included in the repository. The GitHub release page records verified Actions
+  links and results separately from this local validation report.
 - Historical upgrade variants and moving a portable folder. A moved portable
   installation must explicitly refresh startup from its new location.
 

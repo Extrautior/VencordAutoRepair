@@ -73,7 +73,7 @@ def main():
         assert startup._scheduled_task_state() or startup._run_entry_present()
         status = json.loads((data / "startup-result.json").read_text())
         assert status["success"] and status["refreshed"]
-        assert str(exe) in status["command"]
+        assert Path(status["command"][0]).samefile(exe)
         print("PASS in-place upgrade/reinstall preserves settings and enabled startup target")
         run([exe, "--disable-startup"], env)
         run([setup, *flags, "/TASKS=", f"/LOG={root / 'disabled-upgrade.log'}"], env)
