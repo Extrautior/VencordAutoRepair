@@ -2,15 +2,20 @@
 
 VencordAutoRepair performs a single install or repair pass for selected Discord Stable, PTB, and Canary installations. It uses Vencord's official installer CLI, preserves the NoiseToggle bridge, and provides a small Tkinter configuration window on Windows.
 
+## Download
+
+- [Download VencordAutoRepairSetup.exe](https://github.com/Extrautior/VencordAutoRepair/releases/latest/download/VencordAutoRepairSetup.exe) for the per-user Windows installer.
+- [Download VencordAutoRepair-0.4.0-win64-portable.zip](https://github.com/Extrautior/VencordAutoRepair/releases/download/v0.4.0/VencordAutoRepair-0.4.0-win64-portable.zip) from the version-specific `v0.4.0` release tag.
+
 ## Install and use
 
 1. Run `VencordAutoRepairSetup.exe`.
 2. Optionally select the desktop shortcut. Setup places a Start menu entry in place by default.
-3. The GUI opens once after a normal interactive installation finishes.
+3. After a normal interactive installation, Setup opens the configuration GUI after Finish. Configure Startup in that GUI if you want it enabled; Setup itself never enables startup.
 
 The installer is per user, requests the lowest privileges, and installs under `%LOCALAPPDATA%\Programs\VencordAutoRepair`. It does not install Python for the user. Silent installations complete without launching the GUI.
 
-Launching `VencordAutoRepair.exe` with no arguments opens the GUI. Use the GUI to choose Discord branches, set restart behavior, configure startup, run one repair, and open the log folder. The installer does not offer a startup option and never enables startup.
+Launching `VencordAutoRepair.exe` with no arguments opens the GUI. Use the GUI to choose Discord branches, set restart behavior, configure startup, run one repair, and open the log folder. The installer does not offer a startup option.
 
 The uncompressed portable build must remain intact. Run `VencordAutoRepair.exe` from inside the complete `VencordAutoRepair` folder; a lone executable is not sufficient. Startup stores the absolute executable path. If the folder moves, rerun `VencordAutoRepair.exe --enable-startup` from the new location.
 
