@@ -15,11 +15,13 @@ from typing import Optional
 import psutil
 import requests
 
+from app_runtime import data_dir
+
 
 logging.basicConfig(level=logging.INFO, format="(%(asctime)s) %(message)s")
 logger = logging.getLogger("vencord-auto-repair")
 
-SCRIPT_VERSION = "0.3.1"
+SCRIPT_VERSION = "0.4.0"
 WINDOWS_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
 LINUX_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
 SETTINGS_FILENAME = "settings.json"
@@ -359,15 +361,15 @@ def base_dir() -> Path:
 
 
 def settings_path() -> Path:
-    return base_dir() / SETTINGS_FILENAME
+    return data_dir() / SETTINGS_FILENAME
 
 
 def state_path() -> Path:
-    return base_dir() / STATE_FILENAME
+    return data_dir() / STATE_FILENAME
 
 
 def installer_path() -> Path:
-    return base_dir() / INSTALLER_FILENAME
+    return data_dir() / "downloads" / INSTALLER_FILENAME
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -389,8 +391,8 @@ def load_json(path: Path, default: dict) -> dict:
 
 
 def save_json(path: Path, data: dict) -> None:
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2)
+    from app_runtime import atomic_write_json
+    atomic_write_json(path, data)
 
 
 def noise_toggle_settings_path() -> Path:
@@ -640,7 +642,8 @@ def start_discord(install: DiscordInstall) -> None:
 
         command = [str(install.update_exe), "--processStart", install.process_name]
         logger.info("Starting %s via Update.exe", install.branch)
-        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=subprocess.CREATE_NO_WINDOW)
         return
 
     executable = install.executable_hint
@@ -669,6 +672,8 @@ def kill_discord(install: DiscordInstall) -> None:
     deadline = time.time() + 15
     while time.time() < deadline and is_running(install):
         time.sleep(0.25)
+    if is_running(install):
+        raise PermissionError(f"Could not stop {install.branch}; repair deferred")
 
 
 def updater_log_signals_done(log_path: Path) -> bool:
@@ -711,7 +716,7 @@ def wait_for_update_completion(install: DiscordInstall, timeout_seconds: int = 1
 
         time.sleep(0.5)
 
-    logger.warning("Timed out waiting for updater on %s; continuing anyway", install.branch)
+    raise TimeoutError(f"Discord updater did not settle for {install.branch}; repair deferred")
 
 
 def download_installer(target: Path) -> None:
@@ -719,7 +724,12 @@ def download_installer(target: Path) -> None:
     installer_url = WINDOWS_INSTALLER_URL if os.name == "nt" else LINUX_INSTALLER_URL
     response = requests.get(installer_url, timeout=60)
     response.raise_for_status()
-    target.write_bytes(response.content)
+    temporary = target.with_suffix(target.suffix + ".download")
+    try:
+        temporary.write_bytes(response.content)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
     if os.name != "nt":
         target.chmod(0o755)
 
@@ -745,7 +755,10 @@ def run_vencord_repair(installer: Path, install: DiscordInstall) -> None:
         "--location",
         str(install.root_path),
     ]
-    result = subprocess.run(command, check=False)
+    result = subprocess.run(command, check=False, timeout=180,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    logger.info("Vencord installer: %s", result.stdout.decode(errors="replace")[-16000:])
     if result.returncode != 0:
         raise RuntimeError(f"Vencord installer exited with code {result.returncode} for {install.branch}")
 
@@ -758,7 +771,10 @@ def run_vencord_install(installer: Path, install: DiscordInstall) -> None:
         "--location",
         str(install.root_path),
     ]
-    result = subprocess.run(command, check=False)
+    result = subprocess.run(command, check=False, timeout=180,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    logger.info("Vencord installer: %s", result.stdout.decode(errors="replace")[-16000:])
     if result.returncode != 0:
         raise RuntimeError(f"Vencord installer exited with code {result.returncode} for {install.branch}")
 
@@ -842,6 +858,10 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
         return False
 
     installer = ensure_installer(settings)
+    # Downloading can take long enough for a new update to begin.
+    if is_update_exe_running(install):
+        wait_for_update_completion(install)
+    was_running = is_running(install)
     kill_discord(install)
 
     if desired_action == "install":
@@ -867,7 +887,7 @@ def process_install(install: DiscordInstall, settings: dict, state: dict, force:
         bridge_changed and settings.get("restart_discord_after_noise_toggle_bridge", True)
     )
 
-    if should_restart:
+    if should_restart and was_running:
         start_discord(install)
 
     logger.info("%s completed for %s", desired_action.title(), install.branch)
@@ -878,10 +898,14 @@ def main() -> int:
     logger.info("VencordAutoRepair v%s", SCRIPT_VERSION)
     force = "--force" in sys.argv
     dry_run = "--dry-run" in sys.argv
+    if "--startup" in sys.argv:
+        # Gives delayed Discord auto-starts time to begin their update.
+        time.sleep(30)
 
     settings = load_json(settings_path(), default_settings())
     state = load_state()
-    save_json(settings_path(), settings)
+    if not settings_path().exists():
+        save_json(settings_path(), settings)
     save_json(state_path(), state)
 
     installs = discover_installs()
@@ -893,19 +917,28 @@ def main() -> int:
         return 1
 
     changed = False
+    failed = False
     for install in installs:
-        changed = process_install(install, settings, state, force, dry_run) or changed
+        try:
+            changed = process_install(install, settings, state, force, dry_run) or changed
+            save_json(state_path(), state)
+        except Exception:
+            logger.exception("Failed processing %s", install.branch)
+            failed = True
 
-    save_json(settings_path(), settings)
     save_json(state_path(), state)
 
     logger.info("")
-    if dry_run:
-        logger.info("Dry run complete; no files or processes were changed")
+    if failed:
+        logger.error("Check finished with branch failures; see preceding diagnostics")
+    elif dry_run:
+        logger.info("Dry run complete; Discord files and processes were not changed")
     else:
         logger.info("Done%s", " with repairs applied" if changed else "; everything was already current")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Keep the legacy command-line entry point under the same lock and logging.
+    from app import main as application_main
+    raise SystemExit(application_main(["--run-once", *sys.argv[1:]]))
