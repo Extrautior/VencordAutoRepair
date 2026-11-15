@@ -85,7 +85,7 @@ class TaskDefinitionTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Frozen executable layout is Windows-specific")
     def test_frozen_manager_targets_sibling_app_executable(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             app_exe = root / "app.exe"
             manager_exe = root / "startup_manager.exe"
             app_exe.write_bytes(b"")
