@@ -43,7 +43,9 @@ Repair execution holds a per-user lock. Windows uses a named mutex; Linux source
 
 The one-folder distribution contains the executable and its runtime files. Portable users must keep the whole folder together. Startup records an absolute path; moving the folder leaves the registration pointing at the old path until `--enable-startup` is run again.
 
-The Inno Setup installer uses `PrivilegesRequired=lowest` and installs per user under `%LOCALAPPDATA%\Programs\VencordAutoRepair`. It does not install Python. Startup is an unchecked installer task; upgrades refresh an already-enabled registration and preserve a disabled state.
+The Inno Setup installer uses `PrivilegesRequired=lowest` and installs per user under `%LOCALAPPDATA%\Programs\VencordAutoRepair`. It does not install Python. Setup creates a Start menu entry by default, offers an optional desktop shortcut, and does not expose a startup task. Startup is configured in the GUI.
+
+After installation or upgrade, Setup always runs `--refresh-startup`. This refreshes an enabled registration and preserves a disabled state without opting the user into startup. A normal interactive installation launches the GUI once after Setup finishes; silent installation skips that launch.
 
 ## Data and migration
 

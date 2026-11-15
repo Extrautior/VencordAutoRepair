@@ -111,3 +111,20 @@ a repair or scheduled-task test: the per-user mutex deliberately spans fixtures.
 
 Final build, test, installer, scheduler and binary-smoke logs accompany the
 deliverables. Checksums identify the delivered files.
+
+## Installer configuration follow-up
+
+The installer startup checkbox was removed. Normal interactive Setup now opens
+the configuration GUI when the user finishes installation; startup and repair
+preferences are selected in that GUI. Silent installation does not open a GUI.
+Upgrades still refresh an already-enabled registration without changing a
+disabled preference. The updated installer was recompiled and its silent
+install/upgrade/uninstall lifecycle was rerun. The Finish-to-GUI interaction
+still needs an interactive wizard check.
+
+The actual scheduled-task launch was repeated for this follow-up using the
+packaged executable, `--run-once --startup --dry-run`, interactive token and
+least privilege. It again returned task result 0 and application result success
+after the application delay. This is an on-demand launch of the real task, not
+a claimed sign-out/sign-in or reboot test. The preserved legacy shortcut was
+backed up before testing and checked byte-for-byte afterward.

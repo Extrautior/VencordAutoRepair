@@ -5,12 +5,12 @@ VencordAutoRepair performs a single install or repair pass for selected Discord 
 ## Install and use
 
 1. Run `VencordAutoRepairSetup.exe`.
-2. Optionally select **Start VencordAutoRepair when I sign in**.
-3. Launch `VencordAutoRepair.exe` from the Start menu.
+2. Optionally select the desktop shortcut. Setup places a Start menu entry in place by default.
+3. The GUI opens once after a normal interactive installation finishes.
 
-The installer is per user, requests the lowest privileges, and installs under `%LOCALAPPDATA%\Programs\VencordAutoRepair`. It does not install Python for the user.
+The installer is per user, requests the lowest privileges, and installs under `%LOCALAPPDATA%\Programs\VencordAutoRepair`. It does not install Python for the user. Silent installations complete without launching the GUI.
 
-Launching `VencordAutoRepair.exe` with no arguments opens the GUI. Use the GUI to choose Discord branches, set restart behavior, enable or disable startup, run one repair, and open the log folder.
+Launching `VencordAutoRepair.exe` with no arguments opens the GUI. Use the GUI to choose Discord branches, set restart behavior, configure startup, run one repair, and open the log folder. The installer does not offer a startup option and never enables startup.
 
 The uncompressed portable build must remain intact. Run `VencordAutoRepair.exe` from inside the complete `VencordAutoRepair` folder; a lone executable is not sufficient. Startup stores the absolute executable path. If the folder moves, rerun `VencordAutoRepair.exe --enable-startup` from the new location.
 
@@ -54,7 +54,7 @@ The Windows application lock prevents two repair passes from running at once. A 
 
 Windows startup uses a current-user Task Scheduler task with an interactive token, least privilege, and a 30-second logon delay. If that registration is rejected, the tool falls back to a quoted per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry. Disabling startup removes the task, the fallback entry, and the legacy shortcut.
 
-On first run, valid legacy `settings.json` and `state.json` files adjacent to the old executable are copied into the new data directory only when the destination files do not exist. Legacy files are left in place. The installer upgrades in place, retains existing settings, and refreshes startup only when startup was already enabled. The old `VencordAutoRepair.lnk` startup shortcut is removed only after a new registration succeeds.
+On first run, valid legacy `settings.json` and `state.json` files adjacent to the old executable are copied into the new data directory only when the destination files do not exist. Legacy files are left in place. The installer upgrades in place, retains existing settings, and runs `--refresh-startup` after installation. This preserves an enabled startup registration and leaves startup disabled when it was disabled. The old `VencordAutoRepair.lnk` startup shortcut is removed only after a new registration succeeds.
 
 ## Linux source use
 

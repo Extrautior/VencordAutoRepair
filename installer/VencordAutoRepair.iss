@@ -59,7 +59,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "startup"; Description: "Start VencordAutoRepair when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
 Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -68,9 +67,6 @@ Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Open {#MyAppName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
-
-[Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 procedure RunStartupAction(const Parameters, ActionDescription: String);
@@ -109,13 +105,16 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  LaunchResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
+    RunStartupAction('--refresh-startup', 'refresh startup')
+  else if (CurStep = ssDone) and not WizardSilent then
   begin
-    if WizardIsTaskSelected('startup') then
-      RunStartupAction('--enable-startup', 'enable startup')
-    else
-      RunStartupAction('--refresh-startup', 'refresh startup');
+    if not Exec(ExpandConstant('{app}\{#MyAppExeName}'), '',
+      ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, LaunchResultCode) then
+      Log('VencordAutoRepair could not be opened after Setup finished.');
   end;
 end;
 

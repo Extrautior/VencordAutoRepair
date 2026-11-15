@@ -20,3 +20,9 @@ reviewed by the primary agent. Runtime and build workers eventually exhausted
 HTTP 429 retries. The primary agent completed remaining integration fixes,
 security review, installer lifecycle checks, source review and final builds.
 No replacement model was spawned and no numerical token/cost saving is claimed.
+
+The installer configuration follow-up used worker
+`01a1e056-ccdf-72a1-86fc-810d64d67ad6` with the same explicit route. Its recorded
+`turn_context.model` was independently verified as
+`deepseek/deepseek-v4-flash`. The primary agent verified startup execution and
+installer lifecycle behavior.

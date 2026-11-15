@@ -8,7 +8,7 @@ VencordAutoRepair 0.4.0 modernizes the Windows experience while retaining the ex
 - Adds a silent `--run-once` mode, dry-run support, startup controls, and a JSON diagnostics command.
 - Replaces the startup shortcut flow with a current-user Task Scheduler task, with a quoted `HKCU Run` fallback when registration is denied.
 - Moves writable settings, state, logs, downloads, and results under `%LOCALAPPDATA%\VencordAutoRepair`, with XDG data paths on Linux.
-- Uses a PyInstaller one-folder build and a per-user, lowest-privilege Inno Setup installer. Python is not installed for end users.
+- Uses a PyInstaller one-folder build and a per-user, lowest-privilege Inno Setup installer with a Start menu entry, an optional desktop shortcut, and an automatic GUI launch after a normal interactive installation finishes. Python is not installed for end users.
 - Migrates valid adjacent settings and state conservatively and removes the legacy startup shortcut only after a new startup registration succeeds.
 
 ## Reliability
@@ -25,7 +25,7 @@ Upgrades retain user settings because runtime data now lives outside the install
 
 The portable build requires the complete `VencordAutoRepair` folder. Its startup registration records an absolute path, so moving that folder requires running `VencordAutoRepair.exe --enable-startup` again from the new location.
 
-The installer refreshes an existing startup registration after an upgrade and leaves startup disabled if it was disabled. Uninstalling removes current-user startup registrations.
+The installer has no startup option and never enables startup. After installation or upgrade it runs `--refresh-startup`, preserving an enabled registration and leaving startup disabled when it was disabled. Silent installations do not launch the GUI. Uninstalling removes current-user startup registrations.
 
 ## Distribution
 
