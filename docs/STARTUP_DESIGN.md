@@ -11,7 +11,7 @@ The 0.3.1 startup path was reviewed from its code and shortcut behavior. These a
 | The shortcut targeted the console `main.exe` or a console `python.exe` running `main.py`. | A console process or flash could appear at sign-in. | The packaged entry point is a windowed PyInstaller executable, and automation runs it with `--run-once`. |
 | Source-mode shortcut arguments were composed as an unquoted path. | A checkout path containing spaces could be parsed as multiple arguments. | Task Scheduler stores command and arguments separately; the registry fallback uses Windows command-line quoting. |
 | Settings, state, and downloads were written beside the executable. | A protected or read-only application directory could block writes. | Runtime data moved to the current user's Local AppData directory. |
-| Packaging did not explicitly declare an `asInvoker` UAC request. | Elevation intent depended on packaging and launch context. | The runtime remains non-elevated, the installer requests `lowest` privileges, and no elevation consumer is used for startup. The packaged manifest is verified during Windows smoke testing. |
+| The old build definition did not explicitly set UAC behavior; the local original binary was inspected and already requests `asInvoker`. | UAC elevation is not established as this host's root cause. | The new executable also uses `asInvoker`; installation and startup stay per user and non-elevated. |
 
 No failure report from a user was available, so no specific prompt, launch failure, or data-loss event is claimed.
 

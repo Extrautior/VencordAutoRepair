@@ -35,7 +35,7 @@ portable ZIP uses deterministic ordering and timestamps for a fixed payload.
 | Scheduled execution | Actual Task Scheduler launch of packaged app in dry-run mode completed with exit 0 |
 | Upgrade/reinstall | Settings and enabled startup survived replacement; disabled startup remained disabled |
 | Uninstall | Installed application and new startup registration removed; settings retained |
-| Original user startup | Existing real legacy shortcut retained byte-for-byte after tests |
+| Original user startup | Final audit found the old shortcut missing; its existing original application target was restored before delivery |
 | Source GUI | Window launched and was visually inspected; configuration and child-process contract smokes were also exercised |
 
 The installer-version transition used a test-only 0.3.9 installer header with
@@ -53,6 +53,23 @@ The user's live Discord Stable was only inspected in dry-run mode.
 
 NoiseToggle token/bridge content was preserved from the existing engine and its
 automated tests passed. A live NoiseToggle/Krisp toggle was not exercised.
+
+## Startup restoration during verification
+
+The final host-state audit found the pre-existing legacy shortcut missing, despite
+the isolated lifecycle checks reporting no changes relative to their entry state.
+The precise deletion point was not established. The shortcut was recreated to
+`C:\Vencord Auto Repair\main.exe`, with that existing application directory as
+its working directory and the original startup-manager defaults. Its target and
+arguments were verified. The original shortcut bytes were not recoverable, so
+byte-for-byte restoration is not claimed. The new application's temporary tasks
+and Run registrations were removed. A subsequent lifecycle check verified that
+the restored shortcut remained intact.
+
+The local original `main.exe` was also inspected: it has a console subsystem but
+already requests `asInvoker`. Therefore UAC elevation is not established as the
+root cause on this host; console startup, path handling and writable storage are
+the confirmed design risks addressed by this update.
 
 ## Remaining manual verification
 
