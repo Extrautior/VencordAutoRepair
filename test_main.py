@@ -1,4 +1,5 @@
 import tempfile
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -40,6 +41,7 @@ class NoiseToggleBridgeTests(unittest.TestCase):
         with patcher_patch, settings_patch:
             self.assertFalse(main.is_noise_toggle_bridge_installed())
 
+    @unittest.skipUnless(os.name == "nt", "NoiseToggle bridge installation is Windows-only")
     def test_install_replaces_all_old_blocks_and_preserves_clean_backup(self):
         old_bridge = main.NOISETOGGLE_VENCORD_PATCH_SOURCE.replace(
             main.NOISETOGGLE_BRIDGE_VERSION,
@@ -70,6 +72,7 @@ class RuntimeBehaviorTests(unittest.TestCase):
         self.assertTrue(settings["repair_noise_toggle_bridge"])
         self.assertTrue(settings["restart_discord_after_noise_toggle_bridge"])
 
+    @unittest.skipUnless(os.name == "nt", "Discord updater log parsing is Windows-only")
     def test_updater_completion_messages_are_detected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "discord_updater_rCURRENT.log"

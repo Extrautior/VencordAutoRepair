@@ -16,3 +16,6 @@ VencordInstallerCli-linux
 
 .venv/
 venv/
+
+*.egg-info/
+work/
