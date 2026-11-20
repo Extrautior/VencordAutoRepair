@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 
 setup(
     name="VencordAutoRepair",
-    version="0.4.0",
+    version="0.4.1",
     description="Repair Vencord automatically after Discord updates",
     long_description=(ROOT / "README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",

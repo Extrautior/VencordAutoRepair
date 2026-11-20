@@ -61,12 +61,12 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: VencordAutoRepair-0.4.0-windows-x64
+          name: VencordAutoRepair-0.4.1-windows-x64
           if-no-files-found: error
           retention-days: 14
           path: |
             dist/VencordAutoRepair/**
-            dist/VencordAutoRepair-0.4.0-win64-portable.zip
+            dist/VencordAutoRepair-0.4.1-win64-portable.zip
             dist/VencordAutoRepairSetup.exe
             dist/SHA256SUMS.txt
 

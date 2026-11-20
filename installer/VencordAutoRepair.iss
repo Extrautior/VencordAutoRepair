@@ -1,9 +1,9 @@
-; Per-user installer for VencordAutoRepair 0.4.0.
+; Per-user installer for VencordAutoRepair 0.4.1.
 ; The build script supplies ProjectDir, AppDir, OutputDir, OutputBaseFilename,
 ; and AppVersion so this file remains usable from local builds and CI.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.0"
+  #define AppVersion "0.4.1"
 #endif
 #ifndef ProjectDir
   #define ProjectDir ".."

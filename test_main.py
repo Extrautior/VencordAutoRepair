@@ -34,7 +34,7 @@ class NoiseToggleBridgeTests(unittest.TestCase):
     def test_outdated_or_duplicate_bridge_is_not_current(self):
         old_bridge = main.NOISETOGGLE_VENCORD_PATCH_SOURCE.replace(
             main.NOISETOGGLE_BRIDGE_VERSION,
-            "/* NoiseToggleBridge VERSION 1 */",
+            "/* NoiseToggleBridge VERSION 2 */",
         ).strip()
         self.patcher.write_text(old_bridge + "\n" + old_bridge + "\n", encoding="utf-8")
         patcher_patch, settings_patch = self.bridge_patches()
@@ -45,7 +45,7 @@ class NoiseToggleBridgeTests(unittest.TestCase):
     def test_install_replaces_all_old_blocks_and_preserves_clean_backup(self):
         old_bridge = main.NOISETOGGLE_VENCORD_PATCH_SOURCE.replace(
             main.NOISETOGGLE_BRIDGE_VERSION,
-            "/* NoiseToggleBridge VERSION 1 */",
+            "/* NoiseToggleBridge VERSION 2 */",
         ).strip()
         self.patcher.write_text(
             "vencordStart();\n" + old_bridge + "\nvencordEnd();\n" + old_bridge + "\n",
@@ -55,6 +55,7 @@ class NoiseToggleBridgeTests(unittest.TestCase):
         with patcher_patch, settings_patch:
             self.assertTrue(main.install_noise_toggle_bridge())
             self.assertTrue(main.is_noise_toggle_bridge_installed())
+            self.assertFalse(main.install_noise_toggle_bridge())
 
         content = self.patcher.read_text(encoding="utf-8")
         self.assertEqual(content.count(main.NOISETOGGLE_BRIDGE_BEGIN), 1)

@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 
 $RepositoryRoot = (Get-Item -LiteralPath $PSScriptRoot).FullName
 $AppName = "VencordAutoRepair"
-$Version = "0.4.0"
+$Version = "0.4.1"
 $RequiredSources = @("app.py", "gui.py", "app_runtime.py", "main.py", "startup_manager.py")
 $BuildRoot = Join-Path $RepositoryRoot "build\pyinstaller"
 $DistRoot = Join-Path $RepositoryRoot "dist"

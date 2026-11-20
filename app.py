@@ -33,7 +33,7 @@ def _version() -> str:
 
             return str(main.SCRIPT_VERSION)
         except Exception:
-            return "0.4.0"
+            return "0.4.1"
 
 
 def _emit(value: str, *, error: bool = False) -> None:
