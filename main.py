@@ -21,7 +21,7 @@ from app_runtime import data_dir
 logging.basicConfig(level=logging.INFO, format="(%(asctime)s) %(message)s")
 logger = logging.getLogger("vencord-auto-repair")
 
-SCRIPT_VERSION = "0.4.0"
+SCRIPT_VERSION = "0.4.1"
 WINDOWS_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
 LINUX_INSTALLER_URL = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli-linux"
 SETTINGS_FILENAME = "settings.json"
@@ -29,14 +29,14 @@ STATE_FILENAME = "state.json"
 INSTALLER_FILENAME = "VencordInstallerCli.exe" if os.name == "nt" else "VencordInstallerCli-linux"
 NOISETOGGLE_BRIDGE_BEGIN = "/* NoiseToggleBridge BEGIN */"
 NOISETOGGLE_BRIDGE_END = "/* NoiseToggleBridge END */"
-NOISETOGGLE_BRIDGE_VERSION = "/* NoiseToggleBridge VERSION 2 */"
+NOISETOGGLE_BRIDGE_VERSION = "/* NoiseToggleBridge VERSION 3 */"
 
 NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
 /* NoiseToggleBridge BEGIN */
-/* NoiseToggleBridge VERSION 2 */
+/* NoiseToggleBridge VERSION 3 */
 (() => {
-    if (global.__NoiseToggleBridgeVersion === 2) return;
-    global.__NoiseToggleBridgeVersion = 2;
+    if (global.__NoiseToggleBridgeVersion === 3) return;
+    global.__NoiseToggleBridgeVersion = 3;
 
     const crypto = require("crypto");
     const electron = require("electron");
@@ -57,82 +57,76 @@ NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
         }) || windows[0];
     };
 
-    const rendererSource = enabled => `
-        (async () => {
-            const requested = ${enabled};
-            const W = globalThis.Vencord?.Webpack;
-            const BD = globalThis.BdApi?.Webpack;
-            const setterNames = [
-                "setNoiseCancellation", "setNoiseCancellationEnabled", "setNoiseSuppression",
-                "setNoiseSuppressionEnabled", "setInputNoiseCancellation", "setKrispEnabled", "setKrisp"
-            ];
-            const getterNames = [
-                "getNoiseCancellation", "isNoiseCancellationEnabled", "getNoiseCancellationEnabled",
-                "getNoiseSuppression", "isNoiseSuppressionEnabled", "getNoiseSuppressionEnabled",
-                "getInputNoiseCancellation", "getKrispEnabled", "isKrispEnabled"
-            ];
-            const unwrap = module => [module, module?.default, module?.Z, module?.ZP]
-                .filter((value, index, values) => value && values.indexOf(value) === index);
-            const usable = candidate => candidate && candidate[Symbol.toStringTag] !== "IntlMessagesProxy";
-            const findModule = predicate => {
-                const matchingExport = module => unwrap(module).find(predicate) || null;
-                try {
-                    const found = W?.find?.(module => !!matchingExport(module));
-                    const match = matchingExport(found);
-                    if (match) return match;
-                } catch {}
-                try {
-                    const found = BD?.getModule?.(module => !!matchingExport(module));
-                    const match = matchingExport(found);
-                    if (match) return match;
-                } catch {}
-                return null;
-            };
-            const findStore = () => findModule(candidate =>
-                usable(candidate) &&
-                getterNames.some(name => typeof candidate[name] === "function") &&
-                (typeof candidate.getMediaEngine === "function" || typeof candidate.getInputDeviceId === "function"));
-            const findActions = () => findModule(candidate =>
-                usable(candidate) &&
-                setterNames.some(name => typeof candidate[name] === "function") &&
-                (typeof candidate.setNoiseSuppression === "function" || typeof candidate.setInputDevice === "function"));
+    const rendererSource = mode => `(async requested => {
+    const unwrap = module => [module, module?.default, module?.Z, module?.ZP]
+        .filter((value, index, values) => value && values.indexOf(value) === index);
 
-            let store = null;
-            let actions = null;
-            for (let attempt = 0; attempt < 50; attempt++) {
-                store = findStore();
-                actions = requested === null ? null : findActions();
-                if (store && (requested === null || actions)) break;
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            if (!store) throw new Error("Discord media engine store was not found");
+    const findModule = predicate => {
+        const matchingExport = module => unwrap(module).find(candidate =>
+            candidate[Symbol.toStringTag] !== "IntlMessagesProxy" && predicate(candidate));
+        const vencord = globalThis.Vencord?.Webpack;
+        const betterDiscord = globalThis.BdApi?.Webpack;
+        for (const find of [
+            vencord?.find?.bind(vencord),
+            betterDiscord?.getModule?.bind(betterDiscord)
+        ]) {
+            try {
+                const found = matchingExport(find?.(module => !!matchingExport(module)));
+                if (found) return found;
+            } catch {}
+        }
+        return null;
+    };
 
-            const readState = () => {
-                for (const name of getterNames) {
-                    if (typeof store[name] === "function") return { enabled: !!store[name](), getter: name };
-                }
-                throw new Error("Discord media engine store has no supported Krisp getter");
-            };
-            if (requested === null) return { ok: true, ...readState() };
+    const wait = () => new Promise(resolve => setTimeout(resolve, 100));
+    let store;
+    let actions;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        store = findModule(candidate =>
+            typeof candidate.getNoiseCancellation === "function" &&
+            typeof candidate.getNoiseSuppression === "function" &&
+            (typeof candidate.getMediaEngine === "function" || typeof candidate.getInputDeviceId === "function"));
+        actions = requested === null ? null : findModule(candidate =>
+            typeof candidate.setNoiseCancellation === "function" &&
+            typeof candidate.setNoiseSuppression === "function");
+        if (store && (requested === null || actions)) break;
+        await wait();
+    }
+    if (!store) throw new Error("Discord's noise suppression state is unavailable");
 
-            if (!actions) throw new Error("Discord media engine actions were not found");
-            const setter = setterNames.find(name => typeof actions[name] === "function");
-            if (!setter) throw new Error("Discord media engine actions have no supported Krisp setter");
-            await Promise.resolve(actions[setter](requested));
-            for (let attempt = 0; attempt < 20; attempt++) {
-                const state = readState();
-                if (state.enabled === requested) return { ok: true, ...state, setter };
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            const state = readState();
-            return { ok: false, ...state, setter, error: "live-state-mismatch" };
-        })();
-    `;
+    const readMode = () => {
+        const krisp = store.getNoiseCancellation();
+        const standard = store.getNoiseSuppression();
+        if (typeof krisp !== "boolean" || typeof standard !== "boolean") {
+            throw new Error("Discord returned an unsupported noise suppression state");
+        }
+        return krisp ? "krisp" : standard ? "standard" : "none";
+    };
 
-    const evalInDiscord = async enabled => {
+    const report = mode => ({ ok: true, mode, krispEnabled: mode === "krisp", KrispEnabled: mode === "krisp" });
+    const current = readMode();
+    if (requested === null || current === requested) return report(current);
+    if (!actions) throw new Error("Discord's noise suppression controls are unavailable");
+
+    if (requested === "krisp") {
+        await Promise.resolve(actions.setNoiseSuppression(false));
+        await Promise.resolve(actions.setNoiseCancellation(true));
+    } else {
+        await Promise.resolve(actions.setNoiseCancellation(false));
+        await Promise.resolve(actions.setNoiseSuppression(requested === "standard"));
+    }
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+        if (readMode() === requested) return report(requested);
+        await wait();
+    }
+    throw new Error("Discord's live noise suppression mode did not match " + requested);
+}    )(${JSON.stringify(mode)})`;
+
+    const evalInDiscord = async mode => {
         const window = getDiscordWindow();
         if (!window) throw new Error("Discord window was not found");
-        return await window.webContents.executeJavaScript(rendererSource(enabled), true);
+        return await window.webContents.executeJavaScript(rendererSource(mode), true);
     };
     const send = (res, status, payload) => {
         const body = JSON.stringify(payload);
@@ -166,20 +160,15 @@ NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
                 return send(res, 401, { error: "Unauthorized" });
             }
             if (req.method === "GET" && req.url === "/health") {
-                return send(res, 200, { ok: true, bridgeVersion: 2 });
+                return send(res, 200, { ok: true, bridgeVersion: 3 });
             }
             if (req.method === "GET" && req.url === "/state") {
                 evalInDiscord(null)
-                    .then(state => {
-                        if (!state?.ok || typeof state.enabled !== "boolean") {
-                            return send(res, 500, { error: state?.error || "Discord Krisp live state was unavailable" });
-                        }
-                        send(res, 200, { krispEnabled: state.enabled, KrispEnabled: state.enabled });
-                    })
+                    .then(state => send(res, 200, state))
                     .catch(error => send(res, 500, { error: String(error?.message || error) }));
                 return;
             }
-            if (req.method === "POST" && req.url === "/krisp") {
+            if (req.method === "POST" && ["/suppression", "/krisp"].includes(req.url)) {
                 let body = "";
                 req.on("data", chunk => {
                     body += chunk;
@@ -187,17 +176,15 @@ NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
                 });
                 req.on("end", () => {
                     try {
-                        const enabled = JSON.parse(body || "{}").enabled;
-                        if (typeof enabled !== "boolean") {
-                            return send(res, 400, { error: "enabled must be boolean" });
+                        const request = JSON.parse(body || "{}");
+                        const mode = req.url === "/krisp" && typeof request.enabled === "boolean"
+                            ? (request.enabled ? "krisp" : "none")
+                            : request.mode;
+                        if (!["none", "standard", "krisp"].includes(mode)) {
+                            return send(res, 400, { error: "Invalid noise suppression mode" });
                         }
-                        evalInDiscord(enabled)
-                            .then(state => {
-                                if (!state?.ok || state.enabled !== enabled) {
-                                    return send(res, 500, { error: state?.error || "Discord Krisp live state did not change" });
-                                }
-                                send(res, 200, { ok: true, krispEnabled: state.enabled, KrispEnabled: state.enabled });
-                            })
+                        evalInDiscord(mode)
+                            .then(state => send(res, 200, state))
                             .catch(error => send(res, 500, { error: String(error?.message || error) }));
                     } catch (error) {
                         send(res, 400, { error: String(error?.message || error) });
@@ -210,7 +197,7 @@ NOISETOGGLE_VENCORD_PATCH_SOURCE = r'''
 
         server.on("error", error => console.error("[NoiseToggleBridge] Server error:", error));
         server.listen(port, "127.0.0.1", () =>
-            console.log(`[NoiseToggleBridge] v2 listening on 127.0.0.1:${port}`));
+            console.log(`[NoiseToggleBridge] v3 listening on 127.0.0.1:${port}`));
     };
 
     try {

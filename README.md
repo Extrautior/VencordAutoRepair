@@ -1,11 +1,11 @@
-# VencordAutoRepair 0.4.0
+# VencordAutoRepair 0.4.1
 
 VencordAutoRepair performs a single install or repair pass for selected Discord Stable, PTB, and Canary installations. It uses Vencord's official installer CLI, preserves the NoiseToggle bridge, and provides a small Tkinter configuration window on Windows.
 
 ## Download
 
 - [Download VencordAutoRepairSetup.exe](https://github.com/Extrautior/VencordAutoRepair/releases/latest/download/VencordAutoRepairSetup.exe) for the per-user Windows installer.
-- [Download VencordAutoRepair-0.4.0-win64-portable.zip](https://github.com/Extrautior/VencordAutoRepair/releases/download/v0.4.0/VencordAutoRepair-0.4.0-win64-portable.zip) from the version-specific `v0.4.0` release tag.
+- [Download VencordAutoRepair-0.4.1-win64-portable.zip](https://github.com/Extrautior/VencordAutoRepair/releases/download/v0.4.1/VencordAutoRepair-0.4.1-win64-portable.zip) from the version-specific `v0.4.1` release tag.
 
 ## Install and use
 
@@ -51,7 +51,7 @@ The Windows application lock prevents two repair passes from running at once. A 
 - Stable, PTB, and Canary discovery and selection remain supported.
 - A closed Discord installation stays closed. Discord is restarted only when it was running before a required change and the matching restart option is enabled.
 - If Discord's updater is active, VencordAutoRepair waits for it to settle. If the wait times out, repair for that branch is deferred until a later run; the tool does not patch over an active update.
-- NoiseToggle bridge repair remains optional and enabled by default. Missing or older bridge blocks are replaced without stacking duplicates.
+- NoiseToggle bridge repair remains optional and enabled by default. Missing or older bridge blocks are replaced without stacking duplicates. Bridge v3 restores NoiseToggle’s Krisp and None switching in Discord.
 - Failures in one branch do not prevent the remaining branches from being processed.
 - Actual patch and repair work is delegated to the official Vencord installer CLI.
 
@@ -87,7 +87,7 @@ py -3.12 -m venv .venv
 
 ```text
 dist\VencordAutoRepair\VencordAutoRepair.exe
-dist\VencordAutoRepair-0.4.0-win64-portable.zip
+dist\VencordAutoRepair-0.4.1-win64-portable.zip
 dist\VencordAutoRepairSetup.exe
 dist\SHA256SUMS.txt
 ```

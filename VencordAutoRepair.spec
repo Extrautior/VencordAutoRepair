@@ -13,8 +13,8 @@ datas = [
     (str(ASSETS / "VencordAutoRepair.png"), "assets"),
     (str(ROOT / "LICENSE"), "."),
     (
-        str(ASSETS / "package_metadata" / "VencordAutoRepair-0.4.0.dist-info"),
-        "VencordAutoRepair-0.4.0.dist-info",
+        str(ASSETS / "package_metadata" / "VencordAutoRepair-0.4.1.dist-info"),
+        "VencordAutoRepair-0.4.1.dist-info",
     ),
 ]
 
